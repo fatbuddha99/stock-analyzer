@@ -199,7 +199,14 @@ def fetch_data_alpha_vantage(ticker, period="3y", api_key=None):
     if "Note" in payload:
         raise RuntimeError(f"Alpha Vantage rate limit hit: {payload['Note']}")
     if "Information" in payload:
-        raise RuntimeError(f"Alpha Vantage info for {ticker}: {payload['Information']}")
+        info = payload["Information"]
+        if "outputsize=full" in info and "premium" in info.lower():
+            raise RuntimeError(
+                "Alpha Vantage free tier does not provide the full daily history this analyzer needs. "
+                "The current playbook uses roughly 3 years of bars for SMA200, reclaim levels, and base structure. "
+                "Use a premium Alpha Vantage plan or switch the analyzer to a shorter compact-history mode."
+            )
+        raise RuntimeError(f"Alpha Vantage info for {ticker}: {info}")
     if "Meta Data" in payload and "Time Series (Daily)" not in payload:
         raise RuntimeError(
             f"Alpha Vantage returned metadata but no daily series for {ticker}. "
@@ -242,6 +249,15 @@ def fetch_data(ticker, period="3y", source="tws", tws_host="127.0.0.1",
     source = str(source).lower()
     if source == "alphavantage":
         return fetch_data_alpha_vantage(ticker, period), None
+    if source == "yfinance":
+        if not HAS_YFINANCE:
+            raise RuntimeError("yfinance is not installed for this runtime.")
+        df = fetch_data_yfinance(ticker, period)
+        try:
+            yf_ticker = yf.Ticker(ticker)
+        except Exception:
+            yf_ticker = None
+        return df, yf_ticker
     if source in ("tws", "tws_only") and HAS_IBKR:
         try:
             df = fetch_data_tws(ticker, period, tws_host, tws_port, tws_client)
