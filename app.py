@@ -289,7 +289,11 @@ INDEX_HTML = """
           <div class="ticker">{{ ticker or 'HOOD' }}</div>
           <div class="meta">Apr 28, 2026 1:15 PM PT</div>
         </div>
+        {% if output %}
+        <p>The Oracle has generated a live consult for {{ ticker }}. Use the chart, KPI row, and Oracle Output below as the active read for this ticker instead of the default sample narrative.</p>
+        {% else %}
         <p>Strong former leader in reset. The business still has real growth and platform expansion, but the stock needs cleaner contraction and a post-earnings hold before it regains full momentum status. Right now the tape says institutions still respect the business, but they are not yet rewarding it with the kind of durable follow-through that defines a fresh leadership run.</p>
+        {% endif %}
       </div>
 
       <div class="card chart-card">
@@ -337,6 +341,7 @@ INDEX_HTML = """
       </div>
       {% endif %}
 
+      {% if not output %}
       <div class="card" id="insight">
         <div class="section-title"><h2>Insight</h2></div>
         <p>This looks more like a conditional value buy than a value trap because the business still shows real growth and product expansion. The last four quarters show strong momentum overall, with both EPS and revenue improving materially versus earlier periods, and that is not a trap-style fundamental profile. The problem is that the stock got ahead of itself and then entered a period where investors started demanding proof that the next leg of growth will come from broader products rather than just favorable market activity. The tape is not calling the company broken; it is asking management to prove the next leg can hold in price.</p>
@@ -366,6 +371,7 @@ INDEX_HTML = """
         <div class="section-title"><h2>Action Plan</h2></div>
         <p>{{ action_plan }}</p>
       </div>
+      {% endif %}
     </div>
   </div>
   <script>
