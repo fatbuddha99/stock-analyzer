@@ -184,7 +184,7 @@ def fetch_data_alpha_vantage(ticker, period="3y", api_key=None):
     print(f"[fetch] Alpha Vantage downloading {ticker} - period={period}...")
     params = urllib.parse.urlencode(
         {
-            "function": "TIME_SERIES_DAILY_ADJUSTED",
+            "function": "TIME_SERIES_DAILY",
             "symbol": ticker,
             "outputsize": "full",
             "apikey": api_key,
@@ -212,7 +212,7 @@ def fetch_data_alpha_vantage(ticker, period="3y", api_key=None):
                 "High": float(values["2. high"]),
                 "Low": float(values["3. low"]),
                 "Close": float(values["4. close"]),
-                "Volume": float(values["6. volume"]),
+                "Volume": float(values["5. volume"]),
             }
         )
 
