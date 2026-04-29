@@ -4,6 +4,7 @@ import io
 import os
 import tempfile
 from contextlib import redirect_stdout
+from datetime import datetime
 from pathlib import Path
 
 from flask import Flask, jsonify, render_template_string, request
@@ -363,7 +364,7 @@ INDEX_HTML = """
 
       <div class="card" id="action">
         <div class="section-title"><h2>Action Plan</h2></div>
-        <p>Watch for a tighter post-earnings base and a move that actually sticks above the next reclaim zone above $40.20. The cleanest Kell-style move is to wait for a setup that transitions from reset into structure: first a calmer contraction, then a decisive reclaim, then evidence that the move can actually hold. If the stock can go from base to break to hold to extension, the setup becomes much more actionable than it is today. If it keeps producing sharp reversals after good news, the right move is patience rather than anticipation.</p>
+        <p>{{ action_plan }}</p>
       </div>
     </div>
   </div>
@@ -383,22 +384,67 @@ def run_analysis(ticker: str, period: str, chart_path: str | None, save_docx: bo
     output_dir.mkdir(exist_ok=True)
     output_path = output_dir / f"{ticker}_analysis.docx" if save_docx else None
 
+    df, ticker_obj = stock_analyzer.fetch_data(ticker, period, source="yfinance")
+    df = stock_analyzer.add_indicators(df)
+    df = stock_analyzer.classify_volume_colors(df)
+
+    sw_hi, sw_lo = stock_analyzer.find_swings(df)
+    structure, prior_hi, prior_lo = stock_analyzer.determine_structure(df, sw_hi, sw_lo)
+    reclaim = stock_analyzer.determine_reclaim_levels(df, sw_hi)
+    stage_info = stock_analyzer.determine_stage(df)
+    vcp = stock_analyzer.vcp_scorecard(df)
+    kell = stock_analyzer.kell_cycle(df)
+    fib = stock_analyzer.fib_retracement(df)
+    profile = stock_analyzer.weekly_profile(df)
+    vah = stock_analyzer.vah_ladder_analysis(profile)
+    news = stock_analyzer.fetch_news(ticker_obj, 45) if ticker_obj else []
+    ep = stock_analyzer.episodic_pivot_check(df, news)
+    bull, bear, action, tag = stock_analyzer.classify_signals(
+        df, stage_info, vcp, kell, fib, vah, structure, prior_hi, prior_lo, reclaim, ep
+    )
+
+    vision_md = None
+    if chart_path:
+        lines = [
+            f"Verdict tag: {tag}",
+            f"Bullish: {' | '.join(bull) if bull else 'none'}",
+            f"Bearish: {' | '.join(bear) if bear else 'none'}",
+            f"Reclaim Tiers: T1 ${reclaim['tier1']['price']:.2f}, "
+            f"T2 ${reclaim['tier2']['price']:.2f}, T3 ${reclaim['tier3']['price']:.2f}",
+        ]
+        vision_md = stock_analyzer.analyze_chart_with_vision(
+            chart_path, ticker, "\n".join(lines), api_key=os.environ.get("ANTHROPIC_API_KEY")
+        )
+
     buffer = io.StringIO()
     with redirect_stdout(buffer):
-        tag = stock_analyzer.run(
+        stock_analyzer.print_brief(ticker, df, bull, bear, action, tag, reclaim, prior_lo, vision_md)
+
+    if save_docx:
+        final_output = output_path or output_dir / f"{ticker}_analysis_{datetime.now().strftime('%Y%m%d')}.docx"
+        stock_analyzer.generate_report(
             ticker,
-            output_path=str(output_path) if output_path else None,
-            period=period,
-            source="yfinance",
-            chart_path=chart_path,
-            api_key=os.environ.get("ANTHROPIC_API_KEY"),
-            save_docx=save_docx,
+            df,
+            bull,
+            bear,
+            action,
+            tag,
+            reclaim,
+            prior_lo,
+            chart_path,
+            vision_md,
+            str(final_output),
         )
+        output_path = final_output
+
     return {
         "ticker": ticker,
         "tag": tag,
         "output": buffer.getvalue(),
-        "docx_path": str(output_path) if output_path and output_path.exists() else None,
+        "docx_path": str(output_path) if output_path and Path(output_path).exists() else None,
+        "last_price": f"${df.iloc[-1]['Close']:.2f}",
+        "action_plan": action,
+        "reclaim_tier1": reclaim["tier1"]["price"],
     }
 
 
@@ -417,6 +463,11 @@ def index():
     save_docx = False
     temp_chart_path = None
     action = "consult"
+    last_price = "$38.42"
+    earnings_blurb = "EPS Beat · Feb 10"
+    reaction_blurb = "Revenue Miss Fade"
+    action_plan = ("Watch for a tighter post-earnings base and a move that actually sticks above "
+                   "the next reclaim zone above $40.20.")
 
     if request.method == "POST":
         ticker = request.form.get("ticker", "HOOD").strip().upper() or "HOOD"
@@ -434,6 +485,8 @@ def index():
         try:
             result = run_analysis(ticker, period, temp_chart_path, save_docx)
             output = result["output"]
+            last_price = result["last_price"]
+            action_plan = result["action_plan"]
             if result["docx_path"]:
                 download_url = f"/download/{Path(result['docx_path']).name}"
         except Exception as exc:
@@ -451,9 +504,10 @@ def index():
         period=period,
         save_docx=save_docx,
         download_url=download_url,
-        last_price="$38.42",
-        earnings_blurb="EPS Beat · Feb 10",
-        reaction_blurb="Revenue Miss Fade",
+        last_price=last_price,
+        earnings_blurb=earnings_blurb,
+        reaction_blurb=reaction_blurb,
+        action_plan=action_plan,
         periods=["1y", "2y", "3y", "5y", "10y", "max"],
     )
 
