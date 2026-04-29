@@ -286,7 +286,7 @@ INDEX_HTML = """
       <div class="card hero">
         <div class="verdict"><span class="dot"></span> {% if show_live %}Oracle Consult{% else %}Stand By{% endif %}</div>
         <div class="ticker-row">
-          <div class="ticker">{% if show_live %}{{ ticker }}{% else %}The Oracle Does Not Know Everything{% endif %}</div>
+          <div class="ticker">{% if show_live %}{{ ticker }}{% else %}The Oracle Is Self Fufilling{% endif %}</div>
           <div class="meta">{% if show_live %}Apr 28, 2026 1:15 PM PT{% else %}Waiting for a ticker consult{% endif %}</div>
         </div>
         {% if show_live %}
