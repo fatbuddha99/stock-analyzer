@@ -7,23 +7,11 @@ from contextlib import redirect_stdout
 from datetime import datetime
 from pathlib import Path
 
-from flask import Flask, jsonify, render_template_string, request, send_from_directory
+from flask import Flask, jsonify, render_template_string, request
 from werkzeug.utils import secure_filename
 
 import stock_analyzer
 
-
-BASE_DIR = Path(__file__).resolve().parent
-OUTPUT_DIR = BASE_DIR / "outputs"
-OUTPUT_DIR.mkdir(exist_ok=True)
-
-if getattr(stock_analyzer, "HAS_YFINANCE", False):
-    cache_dir = BASE_DIR / ".yfinance-cache"
-    cache_dir.mkdir(exist_ok=True)
-    try:
-        stock_analyzer.yf.set_tz_cache_location(str(cache_dir))
-    except Exception:
-        pass
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024
@@ -37,165 +25,133 @@ INDEX_HTML = """
   <title>The Oracle</title>
   <style>
     :root {
-      --bg: #020403;
-      --panel: #07110b;
-      --line: rgba(116, 255, 145, 0.18);
-      --text: rgba(231, 238, 231, 0.84);
-      --muted: rgba(169, 208, 173, 0.72);
-      --green: #79ff8d;
-      --orange: #ffb24a;
-      --red: #ff7c9b;
+      --bg: #030805;
+      --panel: rgba(7, 18, 10, 0.86);
+      --panel-2: rgba(10, 24, 14, 0.94);
+      --line: rgba(115, 255, 143, 0.18);
+      --text: rgba(236, 242, 236, 0.82);
+      --muted: #7ec58b;
+      --green: #7dff8b;
+      --ink: #011006;
       --blue: #8df5ff;
+      --red: #ff6f91;
     }
     * { box-sizing: border-box; }
     body {
       margin: 0;
-      background:
-        radial-gradient(circle at top, rgba(68, 255, 120, 0.08), transparent 24%),
-        linear-gradient(180deg, #010302 0%, #030705 100%);
       color: var(--text);
+      background:
+        radial-gradient(circle at top, rgba(61, 255, 136, 0.08), transparent 28%),
+        radial-gradient(circle at 80% 10%, rgba(141, 245, 255, 0.05), transparent 18%),
+        linear-gradient(180deg, #020503 0%, #050b06 42%, #020503 100%);
       font-family: "Courier New", Courier, monospace;
     }
     body::before {
       content: "";
       position: fixed;
       inset: 0;
-      pointer-events: none;
-      opacity: 0.24;
       background:
-        linear-gradient(rgba(121, 255, 141, 0.035) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(121, 255, 141, 0.02) 1px, transparent 1px);
+        linear-gradient(rgba(125, 255, 139, 0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(125, 255, 139, 0.02) 1px, transparent 1px);
       background-size: 100% 4px, 4px 100%;
+      pointer-events: none;
+      opacity: 0.3;
     }
     .shell {
       position: relative;
-      max-width: 1320px;
+      max-width: 760px;
       margin: 0 auto;
-      padding: 18px;
-    }
-    .topbar, .panel, .output, .chart-panel, .card, .nav-row {
-      background: rgba(7, 17, 11, 0.92);
-      border: 1px solid var(--line);
-      border-radius: 18px;
-      box-shadow: 0 0 0 1px rgba(24, 79, 36, 0.16) inset, 0 18px 50px rgba(0, 0, 0, 0.34);
+      padding: 18px 14px 44px;
     }
     .topbar {
-      padding: 16px 18px;
+      display: grid;
+      gap: 10px;
       margin-bottom: 14px;
     }
-    .title {
+    .brand-row, .nav-row, .action-row, .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      box-shadow:
+        0 0 0 1px rgba(20, 70, 32, 0.18) inset,
+        0 18px 55px rgba(0, 0, 0, 0.42);
+      backdrop-filter: blur(8px);
+    }
+    .brand-row {
+      padding: 16px 18px;
+      background: linear-gradient(180deg, rgba(17, 36, 22, 0.95), rgba(6, 16, 9, 0.94));
+    }
+    .brand-row h1 {
       margin: 0;
-      font-family: Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif;
-      font-size: 1.9rem;
+      color: #020503;
+      font-size: 1.7rem;
+      font-weight: 700;
       letter-spacing: 0.08em;
       text-transform: uppercase;
-      color: #010402;
-      -webkit-text-stroke: 1.4px var(--green);
-      text-shadow: 0 0 12px rgba(121, 255, 141, 0.22);
+      font-family: Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif;
+      -webkit-text-stroke: 1.5px var(--green);
+      text-shadow: 0 0 14px rgba(125, 255, 139, 0.18);
     }
-    .subtitle {
-      margin-top: 8px;
+    .brand-row p {
+      margin: 8px 0 0;
       color: var(--muted);
-      font-size: 0.88rem;
+      font-size: 0.8rem;
+      line-height: 1.45;
     }
-    .nav-row {
+    .nav-row, .action-row {
       display: flex;
       gap: 8px;
-      padding: 8px;
-      margin-bottom: 14px;
       overflow-x: auto;
+      flex-wrap: nowrap;
+      padding: 8px;
+      align-items: center;
     }
-    .nav-row::-webkit-scrollbar { display: none; }
+    .nav-row::-webkit-scrollbar, .action-row::-webkit-scrollbar { display: none; }
     .btn {
       flex: 0 0 auto;
-      border: 1px solid rgba(240, 244, 240, 0.16);
+      border: 1px solid rgba(240, 244, 240, 0.18);
       border-radius: 999px;
-      background: rgba(238, 244, 238, 0.08);
+      background: rgba(232, 238, 232, 0.08);
       color: rgba(245, 248, 245, 0.8);
-      padding: 8px 12px;
+      padding: 7px 10px;
+      font-size: 0.67rem;
+      cursor: pointer;
+      white-space: nowrap;
+      text-transform: uppercase;
+      letter-spacing: 0.09em;
+      font-family: Verdana, Geneva, sans-serif;
+      text-decoration: none;
+    }
+    .consult-btn {
+      color: var(--green);
+      border-color: rgba(125, 255, 139, 0.28);
+      background: rgba(32, 75, 40, 0.22);
+      font-family: "Trebuchet MS", Helvetica, sans-serif;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+    }
+    .ticker-input {
+      flex: 0 0 112px;
+      min-width: 112px;
+      border: 1px solid rgba(240, 244, 240, 0.18);
+      border-radius: 999px;
+      background: rgba(232, 238, 232, 0.05);
+      color: rgba(245, 248, 245, 0.88);
+      padding: 7px 12px;
+      font: inherit;
       font-size: 0.72rem;
       font-family: Verdana, Geneva, sans-serif;
       text-transform: uppercase;
-      letter-spacing: 0.1em;
-      text-decoration: none;
-      cursor: pointer;
+      outline: none;
     }
-    .btn.primary {
-      color: var(--green);
-      border-color: rgba(121, 255, 141, 0.28);
-      background: rgba(38, 87, 48, 0.25);
-      font-family: "Trebuchet MS", Helvetica, sans-serif;
-      font-weight: 700;
-    }
-    .layout {
-      display: grid;
-      grid-template-columns: 320px minmax(0, 1fr);
-      gap: 14px;
-    }
-    .panel {
-      padding: 14px;
-      align-self: start;
-    }
-    .field {
-      display: grid;
-      gap: 8px;
-      margin-bottom: 12px;
-    }
-    .field label {
-      color: var(--muted);
-      font-size: 0.76rem;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      font-family: Verdana, Geneva, sans-serif;
-    }
-    .text-input, .file-input {
-      width: 100%;
-      border: 1px solid rgba(240, 244, 240, 0.16);
-      border-radius: 12px;
-      background: rgba(238, 244, 238, 0.05);
-      color: var(--text);
-      padding: 10px 12px;
-      font: inherit;
-    }
-    .button-row {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-    .helper {
-      color: var(--muted);
-      font-size: 0.82rem;
-      line-height: 1.5;
-      margin-top: 8px;
-    }
-    .workspace, .sections {
-      display: grid;
-      gap: 14px;
-    }
+    .ticker-input::placeholder { color: rgba(245, 248, 245, 0.42); }
+    .hidden-input { display: none; }
+    .main { display: grid; gap: 12px; }
+    .card { padding: 16px; }
     .hero {
       display: grid;
       gap: 12px;
-      padding: 16px;
       background: linear-gradient(180deg, rgba(8, 20, 11, 0.95), rgba(5, 12, 7, 0.95));
-    }
-    .verdict {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 6px 10px;
-      border: 1px solid var(--line);
-      border-radius: 999px;
-      width: fit-content;
-      font-size: 0.76rem;
-      background: rgba(12, 28, 15, 0.75);
-      color: var(--orange);
-    }
-    .dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: var(--orange);
-      box-shadow: 0 0 10px rgba(121, 255, 141, 0.55);
     }
     .ticker-row {
       display: flex;
@@ -216,43 +172,60 @@ INDEX_HTML = """
       font-size: 0.8rem;
       text-align: right;
     }
-    .chart-panel {
-      overflow: hidden;
-      min-height: 420px;
+    .verdict {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      width: fit-content;
+      font-size: 0.76rem;
+      background: rgba(12, 28, 15, 0.75);
+      color: #ffb347;
     }
-    .chart-wrap {
-      height: 420px;
-      background: #050b06;
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #ffb347;
+      box-shadow: 0 0 10px rgba(125, 255, 139, 0.55);
     }
-    .output {
+    .hero p, .card p {
+      margin: 0;
+      line-height: 1.6;
+      font-size: 0.91rem;
+    }
+    .chart-card {
       padding: 0;
       overflow: hidden;
+      background: var(--panel-2);
     }
-    .output-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
+    .chart-wrap { height: 420px; background: #050b06; }
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
       gap: 10px;
-      padding: 12px 14px;
-      border-bottom: 1px solid var(--line);
+    }
+    .kpi {
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: rgba(8, 18, 10, 0.86);
+    }
+    .kpi .label {
       color: var(--muted);
-      font-size: 0.78rem;
-      font-family: Verdana, Geneva, sans-serif;
+      font-size: 0.7rem;
+      margin-bottom: 8px;
       text-transform: uppercase;
       letter-spacing: 0.08em;
+      font-family: Arial, Helvetica, sans-serif;
     }
-    .status { color: var(--orange); }
-    .terminal {
-      margin: 0;
-      padding: 16px;
-      min-height: 360px;
-      white-space: pre-wrap;
-      overflow-x: auto;
-      line-height: 1.55;
-      color: var(--text);
-    }
-    .card {
-      padding: 16px;
+    .kpi .value {
+      font-size: 1.08rem;
+      font-weight: 700;
+      line-height: 1.2;
+      color: #f4fff5;
     }
     .section-title h2 {
       margin: 0 0 10px;
@@ -262,195 +235,138 @@ INDEX_HTML = """
       letter-spacing: 0.03em;
     }
     .error { color: var(--red); }
-    .download-link { color: var(--blue); }
-    @media (max-width: 980px) {
-      .layout { grid-template-columns: 1fr; }
-      .chart-wrap { height: 360px; }
+    pre {
+      margin: 0;
+      white-space: pre-wrap;
+      overflow-x: auto;
+      color: rgba(236, 242, 236, 0.82);
+      font: inherit;
+      line-height: 1.55;
     }
+    .download-link { color: var(--blue); }
     @media (max-width: 640px) {
       .shell { padding: 12px 10px 32px; }
       .ticker { font-size: 1.6rem; }
       .ticker-row { flex-direction: column; align-items: flex-start; }
       .meta { text-align: left; }
+      .chart-wrap { height: 360px; }
+      .kpi-grid { grid-template-columns: 1fr; }
     }
   </style>
 </head>
 <body>
   <div class="shell">
-    <div class="topbar">
-      <h1 class="title">The Oracle</h1>
-      <div class="subtitle">A Deep Dive For Context And Nuances.</div>
-    </div>
-
-    <div class="nav-row">
-      <a class="btn" href="#insight">Insight</a>
-      <a class="btn" href="#stage">Stage</a>
-      <a class="btn" href="#volatility">Volatility</a>
-      <a class="btn" href="#earnings">Earnings</a>
-      <a class="btn" href="#action">Action</a>
-    </div>
-
-    <div class="layout">
-      <form class="panel" method="post" enctype="multipart/form-data">
-        <div class="field">
-          <label for="ticker">Ticker</label>
-          <input class="text-input" id="ticker" name="ticker" placeholder="IBM" value="{{ ticker }}">
+    <form method="post" enctype="multipart/form-data" id="oracle-form">
+      <input class="hidden-input" id="chart-input" type="file" name="chart" accept=".png,.jpg,.jpeg,.webp">
+      <input type="hidden" name="docx" value="{{ '1' if save_docx else '0' }}">
+      <input type="hidden" name="period" value="3y">
+      <div class="topbar">
+        <div class="brand-row">
+          <h1>The Oracle</h1>
+          <p>A Deep Dive For Context And Nuances.</p>
         </div>
-        <div class="field">
-          <label for="chart">Annotated Chart (Optional)</label>
-          <input class="file-input" id="chart" type="file" name="chart" accept=".png,.jpg,.jpeg,.webp">
-        </div>
-        <div class="button-row">
-          <button class="btn primary" type="submit" name="action" value="consult">Consult</button>
+        <div class="nav-row">
+          <a class="btn" href="#insight">Insight</a>
+          <a class="btn" href="#stage">Stage</a>
+          <a class="btn" href="#volatility">Volatility</a>
+          <a class="btn" href="#earnings">Earnings</a>
+          <a class="btn" href="#tailwind">Tailwind</a>
+          <a class="btn" href="#action">Action</a>
+          <button class="btn" type="button" id="upload-trigger">Upload</button>
           <button class="btn" type="submit" name="action" value="export">Export</button>
         </div>
-        <div class="helper">
-          Render now mirrors the localhost terminal flow and uses Yahoo-backed history instead of Alpha Vantage.
-        </div>
-      </form>
-
-      <div class="workspace">
-        <div class="hero">
-          <div class="verdict"><span class="dot"></span> {% if show_live %}Oracle Consult{% else %}Stand By{% endif %}</div>
-          <div class="ticker-row">
-            <div class="ticker">{% if show_live %}{{ ticker }}{% else %}The Oracle Is Self Fufilling{% endif %}</div>
-            <div class="meta">{% if show_live %}{{ consult_time }}{% else %}Waiting for a ticker consult{% endif %}</div>
-          </div>
-          <p>{% if show_live %}The Oracle has generated a live consult for {{ ticker }}. The chart, terminal output, and five-section read below are now the active view.{% else %}Nothing loads until you ask for a read.{% endif %}</p>
-        </div>
-
-        <div class="chart-panel">
-          {% if show_live %}
-          <div class="chart-wrap">
-            <iframe
-              title="TradingView Chart"
-              src="https://s.tradingview.com/widgetembed/?symbol=NASDAQ%3A{{ chart_symbol }}&interval=D&hidesidetoolbar=1&symboledit=1&saveimage=0&toolbarbg=050b06&studies=[]&theme=dark&style=1&timezone=Etc%2FUTC&withdateranges=1&hideideas=1&hidevolume=0&calendar=0&details=0&hotlist=0&news=0&watchlist=0&locale=en"
-              style="width:100%;height:100%;border:0;"
-              allowtransparency="true"
-              scrolling="no"></iframe>
-          </div>
-          {% else %}
-          <pre class="terminal">The Oracle is waiting for a ticker.</pre>
-          {% endif %}
-        </div>
-
-        <div class="output">
-          <div class="output-head">
-            <span>Terminal Output</span>
-            <span class="status">{% if show_live %}Consult Complete{% else %}Stand By{% endif %}</span>
-          </div>
-          <pre class="terminal{% if error %} error{% endif %}">{{ output if output else 'The Oracle is waiting for a consult.' }}</pre>
-          {% if download_url %}
-          <p style="margin:0;padding:0 16px 16px;">DOCX created: <a class="download-link" href="{{ download_url }}">{{ download_url }}</a></p>
-          {% endif %}
+        <div class="action-row">
+          <input class="ticker-input" name="ticker" value="{{ ticker }}" placeholder="Ticker" aria-label="Ticker" required>
+          <button class="btn consult-btn" type="submit" name="action" value="consult">Consult</button>
         </div>
       </div>
-    </div>
+    </form>
 
-    {% if show_live %}
-    <div class="sections" style="margin-top:14px;">
+    <div class="main">
+      <div class="card hero">
+        <div class="verdict"><span class="dot"></span> {% if show_live %}Oracle Consult{% else %}Stand By{% endif %}</div>
+        <div class="ticker-row">
+          <div class="ticker">{% if show_live %}{{ ticker }}{% else %}The Oracle Is Self Fufilling{% endif %}</div>
+          <div class="meta">{% if show_live %}Apr 28, 2026 1:15 PM PT{% else %}Waiting for a ticker consult{% endif %}</div>
+        </div>
+        {% if show_live %}
+        <p>The Oracle has generated a live consult for {{ ticker }}. Use the chart, KPI row, and Oracle Output below as the active read for this ticker instead of the default sample narrative.</p>
+        {% else %}
+        {% endif %}
+      </div>
+
+      {% if show_live %}
+      <div class="card chart-card">
+        <div class="chart-wrap">
+          <iframe
+            title="TradingView Chart"
+            src="https://s.tradingview.com/widgetembed/?symbol=NASDAQ%3A{{ chart_symbol }}&interval=D&hidesidetoolbar=1&symboledit=1&saveimage=0&toolbarbg=050b06&studies=[]&theme=dark&style=1&timezone=Etc%2FUTC&withdateranges=1&hideideas=1&hidevolume=0&calendar=0&details=0&hotlist=0&news=0&watchlist=0&locale=en"
+            style="width: 100%; height: 100%; border: 0;"
+            allowtransparency="true"
+            scrolling="no"></iframe>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="kpi-grid">
+          <div class="kpi">
+            <div class="label">Current Price</div>
+            <div class="value">{{ last_price or '$38.42' }}</div>
+          </div>
+          <div class="kpi">
+            <div class="label">Last Earnings</div>
+            <div class="value">{{ earnings_blurb or 'EPS Beat · Feb 10' }}</div>
+          </div>
+          <div class="kpi">
+            <div class="label">Reaction</div>
+            <div class="value">{{ reaction_blurb or 'Revenue Miss Fade' }}</div>
+          </div>
+        </div>
+      </div>
+      {% endif %}
+
+      {% if error %}
+      <div class="card">
+        <div class="section-title"><h2>Error</h2></div>
+        <p class="error">{{ error }}</p>
+      </div>
+      {% endif %}
+
+      {% if output %}
+      <div class="card" id="consult-output">
+        <div class="section-title"><h2>Oracle Output</h2></div>
+        <pre>{{ output }}</pre>
+        {% if download_url %}
+        <p style="margin-top: 12px;">DOCX created: <a class="download-link" href="{{ download_url }}">{{ download_url }}</a></p>
+        {% endif %}
+      </div>
+      {% endif %}
+
+      {% if not show_live %}
       <div class="card" id="insight">
         <div class="section-title"><h2>Insight</h2></div>
-        <p>{{ insight_text }}</p>
+        <p>The Oracle does not know everything. It waits for a ticker, then builds a live consult from the chart, recent structure, earnings context, and the script's own analysis before it says anything specific.</p>
       </div>
-      <div class="card" id="stage">
-        <div class="section-title"><h2>Stage Analysis</h2></div>
-        <p>{{ stage_text }}</p>
-      </div>
-      <div class="card" id="volatility">
-        <div class="section-title"><h2>Volatility Analysis</h2></div>
-        <p>{{ volatility_text }}</p>
-      </div>
-      <div class="card" id="earnings">
-        <div class="section-title"><h2>Earnings Context</h2></div>
-        <p>{{ earnings_text }}</p>
-      </div>
-      <div class="card" id="action">
-        <div class="section-title"><h2>Action Plan</h2></div>
-        <p>{{ action_text }}</p>
-      </div>
+      {% endif %}
     </div>
-    {% elif error %}
-    <div class="card" style="margin-top:14px;">
-      <div class="section-title"><h2>Error</h2></div>
-      <p class="error">{{ error }}</p>
-    </div>
-    {% else %}
-    <div class="card" id="insight" style="margin-top:14px;">
-      <div class="section-title"><h2>Insight</h2></div>
-      <p>The Oracle waits for a ticker, then builds a live consult from chart structure, trend state, volatility character, and the script's own action plan. Nothing loads until you ask for a read.</p>
-    </div>
-    {% endif %}
   </div>
+  <script>
+    const uploadTrigger = document.getElementById('upload-trigger');
+    const chartInput = document.getElementById('chart-input');
+    uploadTrigger?.addEventListener('click', () => chartInput?.click());
+  </script>
 </body>
 </html>
 """
 
 
-def build_render_sections(
-    ticker: str,
-    tag: str,
-    structure: str,
-    stage_info: dict,
-    vcp: dict,
-    kell: dict,
-    fib: dict | None,
-    vah: str,
-    action: str,
-    bull: list[str],
-    bear: list[str],
-    ticker_obj,
-) -> dict[str, str]:
-    stage_name = stage_info.get("stage", "Unknown")
-    vcp_grade = vcp.get("grade", "Unknown")
-    retrace = fib.get("retrace_pct", 0) if fib else 0
-    kell_pattern = kell.get("pattern", "Neutral / Consolidation")
-
-    insight_text = (
-        f"{ticker} currently reads as {tag.lower()}, with {len(bull)} bullish signals versus "
-        f"{len(bear)} bearish signals in the script output. The immediate takeaway is that The Oracle "
-        f"sees the tape as {structure.lower()}, not as a fresh momentum continuation."
-    )
-    stage_text = (
-        f"The stage model is {stage_name}, and the underlying swing structure is {structure.lower()}. "
-        "That means the read is being driven more by broad trend condition than by a clean breakout posture."
-    )
-    volatility_text = (
-        f"Volatility quality is {vcp_grade}, while the Kell-pattern read is {kell_pattern.lower()}. "
-        f"The latest Fibonacci retracement is near {retrace:.1f}%, and the weekly value-area read is: {vah}."
-    )
-
-    earnings_text = (
-        "This Render version now mirrors the localhost terminal and does not use Alpha Vantage. "
-        "The live read is primarily technical, with any catalyst context coming from Yahoo-backed news the script can fetch."
-    )
-    if ticker_obj:
-        try:
-            news = stock_analyzer.fetch_news(ticker_obj, 21)
-            if news:
-                latest = news[0]
-                earnings_text = (
-                    f"Recent context from Yahoo-backed news is available. The latest headline was on "
-                    f"{latest['date'].strftime('%b %d, %Y')} from {latest['publisher']}: {latest['title']}. "
-                    "This section is now driven by the same lightweight Yahoo path as localhost."
-                )
-        except Exception:
-            pass
-
-    return {
-        "insight_text": insight_text,
-        "stage_text": stage_text,
-        "volatility_text": volatility_text,
-        "earnings_text": earnings_text,
-        "action_text": action,
-    }
-
-
 def run_analysis(ticker: str, period: str, chart_path: str | None, save_docx: bool):
     ticker = ticker.upper().strip()
-    output_path = OUTPUT_DIR / f"{ticker}_analysis.docx" if save_docx else None
+    output_dir = Path("outputs")
+    output_dir.mkdir(exist_ok=True)
+    output_path = output_dir / f"{ticker}_analysis.docx" if save_docx else None
 
-    df, ticker_obj = stock_analyzer.fetch_data(ticker, period, source="yfinance")
+    df, ticker_obj = stock_analyzer.fetch_data(ticker, period, source="alphavantage")
     df = stock_analyzer.add_indicators(df)
     df = stock_analyzer.classify_volume_colors(df)
 
@@ -487,15 +403,21 @@ def run_analysis(ticker: str, period: str, chart_path: str | None, save_docx: bo
         stock_analyzer.print_brief(ticker, df, bull, bear, action, tag, reclaim, prior_lo, vision_md)
 
     if save_docx:
-        final_output = output_path or OUTPUT_DIR / f"{ticker}_analysis_{datetime.now().strftime('%Y%m%d')}.docx"
+        final_output = output_path or output_dir / f"{ticker}_analysis_{datetime.now().strftime('%Y%m%d')}.docx"
         stock_analyzer.generate_report(
-            ticker, df, bull, bear, action, tag, reclaim, prior_lo, chart_path, vision_md, str(final_output)
+            ticker,
+            df,
+            bull,
+            bear,
+            action,
+            tag,
+            reclaim,
+            prior_lo,
+            chart_path,
+            vision_md,
+            str(final_output),
         )
         output_path = final_output
-
-    sections = build_render_sections(
-        ticker, tag, structure, stage_info, vcp, kell, fib, vah, action, bull, bear, ticker_obj
-    )
 
     return {
         "ticker": ticker,
@@ -503,8 +425,8 @@ def run_analysis(ticker: str, period: str, chart_path: str | None, save_docx: bo
         "output": buffer.getvalue(),
         "docx_path": str(output_path) if output_path and Path(output_path).exists() else None,
         "last_price": f"${df.iloc[-1]['Close']:.2f}",
-        "consult_time": datetime.now().strftime("%b %d, %Y %I:%M %p PT"),
-        **sections,
+        "action_plan": action,
+        "reclaim_tier1": reclaim["tier1"]["price"],
     }
 
 
@@ -515,34 +437,44 @@ def health():
 
 @app.route("/", methods=["GET", "POST"])
 def index():
-    context = {
-        "ticker": "",
-        "output": "",
-        "error": "",
-        "download_url": "",
-        "show_live": False,
-        "chart_symbol": "",
-        "consult_time": "",
-        "insight_text": "",
-        "stage_text": "",
-        "volatility_text": "",
-        "earnings_text": "",
-        "action_text": "",
-        "save_docx": False,
-    }
+    output = ""
+    error = ""
+    download_url = ""
+    ticker = ""
+    period = "3y"
+    save_docx = False
     temp_chart_path = None
+    action = "consult"
+    last_price = "$38.42"
+    earnings_blurb = "EPS Beat · Feb 10"
+    reaction_blurb = "Revenue Miss Fade"
+    action_plan = ("Watch for a tighter post-earnings base and a move that actually sticks above "
+                   "the next reclaim zone above $40.20.")
 
     if request.method == "POST":
         ticker = request.form.get("ticker", "").strip().upper()
+        period = request.form.get("period", "3y")
         action = request.form.get("action", "consult")
+        save_docx = action == "export" or request.form.get("docx", "0") == "1"
         chart = request.files.get("chart")
-        save_docx = action == "export"
-        context["ticker"] = ticker
-        context["save_docx"] = save_docx
 
         if not ticker:
-            context["error"] = "Enter a ticker before consulting The Oracle."
-            return render_template_string(INDEX_HTML, **context)
+            error = "Enter a ticker before consulting The Oracle."
+            return render_template_string(
+                INDEX_HTML,
+                output=output,
+                error=error,
+                ticker=ticker,
+                chart_symbol="",
+                period=period,
+                save_docx=save_docx,
+                download_url=download_url,
+                last_price=last_price,
+                earnings_blurb=earnings_blurb,
+                reaction_blurb=reaction_blurb,
+                action_plan=action_plan,
+                periods=["1y", "2y", "3y", "5y", "10y", "max"],
+            )
 
         if chart and chart.filename:
             suffix = Path(secure_filename(chart.filename)).suffix or ".png"
@@ -551,25 +483,40 @@ def index():
                 temp_chart_path = tmp.name
 
         try:
-            result = run_analysis(ticker, "3y", temp_chart_path, save_docx)
-            context.update(result)
-            context["show_live"] = True
-            context["chart_symbol"] = ticker
+            result = run_analysis(ticker, period, temp_chart_path, save_docx)
+            output = result["output"]
+            last_price = result["last_price"]
+            action_plan = result["action_plan"]
             if result["docx_path"]:
-                context["download_url"] = f"/download/{Path(result['docx_path']).name}"
+                download_url = f"/download/{Path(result['docx_path']).name}"
         except Exception as exc:
-            context["error"] = f"{type(exc).__name__}: {exc}"
-            context["output"] = context["error"]
+            error = f"{type(exc).__name__}: {exc}"
         finally:
             if temp_chart_path and os.path.exists(temp_chart_path):
                 os.unlink(temp_chart_path)
 
-    return render_template_string(INDEX_HTML, **context)
+    return render_template_string(
+        INDEX_HTML,
+        output=output,
+        error=error,
+        ticker=ticker,
+        chart_symbol=ticker,
+        show_live=bool(ticker and output),
+        period=period,
+        save_docx=save_docx,
+        download_url=download_url,
+        last_price=last_price,
+        earnings_blurb=earnings_blurb,
+        reaction_blurb=reaction_blurb,
+        action_plan=action_plan,
+        periods=["1y", "2y", "3y", "5y", "10y", "max"],
+    )
 
 
 @app.post("/api/analyze")
 def analyze():
     ticker = request.form.get("ticker", request.args.get("ticker", "")).strip().upper()
+    period = request.form.get("period", request.args.get("period", "3y"))
     save_docx = request.form.get("docx", request.args.get("docx", "0")) in {"1", "true", "True"}
     chart = request.files.get("chart")
     temp_chart_path = None
@@ -584,17 +531,12 @@ def analyze():
             temp_chart_path = tmp.name
 
     try:
-        result = run_analysis(ticker, "3y", temp_chart_path, save_docx)
+        result = run_analysis(ticker, period, temp_chart_path, save_docx)
         payload = {
             "ok": True,
             "ticker": result["ticker"],
             "tag": result["tag"],
             "output": result["output"],
-            "insight": result["insight_text"],
-            "stage": result["stage_text"],
-            "volatility": result["volatility_text"],
-            "earnings": result["earnings_text"],
-            "action": result["action_text"],
         }
         if result["docx_path"]:
             payload["docx_download"] = f"/download/{Path(result['docx_path']).name}"
@@ -608,7 +550,9 @@ def analyze():
 
 @app.get("/download/<filename>")
 def download(filename: str):
-    return send_from_directory(str(OUTPUT_DIR), filename, as_attachment=True)
+    from flask import send_from_directory
+
+    return send_from_directory("outputs", filename, as_attachment=True)
 
 
 if __name__ == "__main__":
