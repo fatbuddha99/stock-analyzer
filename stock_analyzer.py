@@ -19,6 +19,9 @@ import argparse
 import sys
 import os
 import io
+import json
+import urllib.parse
+import urllib.request
 from datetime import datetime, timedelta
 
 if sys.platform == "win32":
@@ -160,10 +163,77 @@ def fetch_data_yfinance(ticker, period="3y", retries=3):
     return df
 
 
+def _period_to_days(period):
+    mapping = {
+        "1y": 366,
+        "2y": 731,
+        "3y": 1096,
+        "5y": 1827,
+        "10y": 3653,
+    }
+    return mapping.get(str(period).lower())
+
+
+def fetch_data_alpha_vantage(ticker, period="3y", api_key=None):
+    api_key = api_key or os.environ.get("ALPHAVANTAGE_API_KEY") or os.environ.get("ALPHA_VANTAGE_API_KEY")
+    if not api_key:
+        raise RuntimeError(
+            "Alpha Vantage API key not found. Set ALPHAVANTAGE_API_KEY or ALPHA_VANTAGE_API_KEY."
+        )
+
+    print(f"[fetch] Alpha Vantage downloading {ticker} - period={period}...")
+    params = urllib.parse.urlencode(
+        {
+            "function": "TIME_SERIES_DAILY_ADJUSTED",
+            "symbol": ticker,
+            "outputsize": "full",
+            "apikey": api_key,
+        }
+    )
+    url = f"https://www.alphavantage.co/query?{params}"
+    with urllib.request.urlopen(url, timeout=60) as resp:
+        payload = json.loads(resp.read().decode("utf-8"))
+
+    if "Error Message" in payload:
+        raise RuntimeError(f"Alpha Vantage error for {ticker}: {payload['Error Message']}")
+    if "Note" in payload:
+        raise RuntimeError(f"Alpha Vantage rate limit hit: {payload['Note']}")
+
+    series = payload.get("Time Series (Daily)")
+    if not series:
+        raise RuntimeError(f"Alpha Vantage returned no daily series for {ticker}")
+
+    rows = []
+    for day, values in series.items():
+        rows.append(
+            {
+                "Date": pd.to_datetime(day),
+                "Open": float(values["1. open"]),
+                "High": float(values["2. high"]),
+                "Low": float(values["3. low"]),
+                "Close": float(values["4. close"]),
+                "Volume": float(values["6. volume"]),
+            }
+        )
+
+    df = pd.DataFrame(rows).sort_values("Date").set_index("Date")
+    days = _period_to_days(period)
+    if days is not None:
+        cutoff = df.index.max() - pd.Timedelta(days=days)
+        df = df[df.index >= cutoff]
+    if df.empty:
+        raise RuntimeError(f"Alpha Vantage returned an empty frame for {ticker}")
+    print(f"[fetch] Got {len(df)} bars from Alpha Vantage, {df.index[0].date()} to {df.index[-1].date()}")
+    return df[["Open", "High", "Low", "Close", "Volume"]]
+
+
 def fetch_data(ticker, period="3y", source="tws", tws_host="127.0.0.1",
                tws_port=7497, tws_client=20):
     df = None
     yf_ticker = None
+    source = str(source).lower()
+    if source == "alphavantage":
+        return fetch_data_alpha_vantage(ticker, period), None
     if source in ("tws", "tws_only") and HAS_IBKR:
         try:
             df = fetch_data_tws(ticker, period, tws_host, tws_port, tws_client)
@@ -171,11 +241,15 @@ def fetch_data(ticker, period="3y", source="tws", tws_host="127.0.0.1",
             print(f"[fetch] TWS failed: {e}")
             if source == "tws_only":
                 raise
-            print("[fetch] Falling back to yfinance...")
+            fallback = "Alpha Vantage" if (os.environ.get("ALPHAVANTAGE_API_KEY") or os.environ.get("ALPHA_VANTAGE_API_KEY")) else "yfinance"
+            print(f"[fetch] Falling back to {fallback}...")
     if df is None:
-        if not HAS_YFINANCE:
-            raise RuntimeError("TWS unavailable and yfinance not installed.")
-        df = fetch_data_yfinance(ticker, period)
+        if os.environ.get("ALPHAVANTAGE_API_KEY") or os.environ.get("ALPHA_VANTAGE_API_KEY"):
+            df = fetch_data_alpha_vantage(ticker, period)
+        else:
+            if not HAS_YFINANCE:
+                raise RuntimeError("TWS unavailable, Alpha Vantage key missing, and yfinance not installed.")
+            df = fetch_data_yfinance(ticker, period)
     if HAS_YFINANCE:
         try:
             yf_ticker = yf.Ticker(ticker)
@@ -1151,6 +1225,7 @@ def cli():
     parser.add_argument("--period", "-p", default="3y",
                         help="Data period: 1y / 2y / 3y (default) / 5y / 10y / max")
     parser.add_argument("--yfinance", action="store_true", help="Force yfinance")
+    parser.add_argument("--alphavantage", action="store_true", help="Force Alpha Vantage")
     parser.add_argument("--tws-only", action="store_true", help="Require TWS, no fallback")
     parser.add_argument("--tws-host", default="127.0.0.1")
     parser.add_argument("--tws-port", type=int, default=7497)
@@ -1163,7 +1238,7 @@ def cli():
                         help="Also save the brief to a DOCX file")
     args = parser.parse_args()
 
-    source = "yfinance" if args.yfinance else ("tws_only" if args.tws_only else "tws")
+    source = "alphavantage" if args.alphavantage else ("yfinance" if args.yfinance else ("tws_only" if args.tws_only else "tws"))
 
     exit_code = 0
     try:

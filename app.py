@@ -366,7 +366,7 @@ def run_analysis(ticker: str, period: str, chart_path: str | None, save_docx: bo
     output_dir.mkdir(exist_ok=True)
     output_path = output_dir / f"{ticker}_analysis.docx" if save_docx else None
 
-    df, ticker_obj = stock_analyzer.fetch_data(ticker, period, source="yfinance")
+    df, ticker_obj = stock_analyzer.fetch_data(ticker, period, source="alphavantage")
     df = stock_analyzer.add_indicators(df)
     df = stock_analyzer.classify_volume_colors(df)
 
