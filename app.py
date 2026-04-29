@@ -16,6 +16,15 @@ import stock_analyzer
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024
 
+BASE_DIR = Path(__file__).resolve().parent
+if getattr(stock_analyzer, "HAS_YFINANCE", False):
+    cache_dir = BASE_DIR / ".yfinance-cache"
+    cache_dir.mkdir(exist_ok=True)
+    try:
+        stock_analyzer.yf.set_tz_cache_location(str(cache_dir))
+    except Exception:
+        pass
+
 INDEX_HTML = """
 <!doctype html>
 <html lang="en">
@@ -362,11 +371,11 @@ INDEX_HTML = """
 
 def run_analysis(ticker: str, period: str, chart_path: str | None, save_docx: bool):
     ticker = ticker.upper().strip()
-    output_dir = Path("outputs")
+    output_dir = BASE_DIR / "outputs"
     output_dir.mkdir(exist_ok=True)
     output_path = output_dir / f"{ticker}_analysis.docx" if save_docx else None
 
-    df, ticker_obj = stock_analyzer.fetch_data(ticker, period, source="alphavantage")
+    df, ticker_obj = stock_analyzer.fetch_data(ticker, period, source="yfinance")
     df = stock_analyzer.add_indicators(df)
     df = stock_analyzer.classify_volume_colors(df)
 

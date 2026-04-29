@@ -242,6 +242,15 @@ def fetch_data(ticker, period="3y", source="tws", tws_host="127.0.0.1",
     source = str(source).lower()
     if source == "alphavantage":
         return fetch_data_alpha_vantage(ticker, period), None
+    if source == "yfinance":
+        if not HAS_YFINANCE:
+            raise RuntimeError("yfinance is not installed for this runtime.")
+        df = fetch_data_yfinance(ticker, period)
+        try:
+            yf_ticker = yf.Ticker(ticker)
+        except Exception:
+            yf_ticker = None
+        return df, yf_ticker
     if source in ("tws", "tws_only") and HAS_IBKR:
         try:
             df = fetch_data_tws(ticker, period, tws_host, tws_port, tws_client)
