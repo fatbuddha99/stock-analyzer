@@ -292,7 +292,6 @@ INDEX_HTML = """
         {% if show_live %}
         <p>The Oracle has generated a live consult for {{ ticker }}. Use the chart, KPI row, and Oracle Output below as the active read for this ticker instead of the default sample narrative.</p>
         {% else %}
-        <p>Type a ticker, then press Consult. The landing page stays intentionally blank and lightweight until you ask for a read, so the chart and analysis only load when they are actually needed.</p>
         {% endif %}
       </div>
 
