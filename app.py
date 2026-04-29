@@ -284,18 +284,19 @@ INDEX_HTML = """
 
     <div class="main">
       <div class="card hero">
-        <div class="verdict"><span class="dot"></span> Conditional Value Buy</div>
+        <div class="verdict"><span class="dot"></span> {% if show_live %}Oracle Consult{% else %}Stand By{% endif %}</div>
         <div class="ticker-row">
-          <div class="ticker">{{ ticker or 'HOOD' }}</div>
-          <div class="meta">Apr 28, 2026 1:15 PM PT</div>
+          <div class="ticker">{% if show_live %}{{ ticker }}{% else %}The Oracle Does Not Know Everything{% endif %}</div>
+          <div class="meta">{% if show_live %}Apr 28, 2026 1:15 PM PT{% else %}Waiting for a ticker consult{% endif %}</div>
         </div>
-        {% if output %}
+        {% if show_live %}
         <p>The Oracle has generated a live consult for {{ ticker }}. Use the chart, KPI row, and Oracle Output below as the active read for this ticker instead of the default sample narrative.</p>
         {% else %}
-        <p>Strong former leader in reset. The business still has real growth and platform expansion, but the stock needs cleaner contraction and a post-earnings hold before it regains full momentum status. Right now the tape says institutions still respect the business, but they are not yet rewarding it with the kind of durable follow-through that defines a fresh leadership run.</p>
+        <p>Type a ticker, then press Consult. The landing page stays intentionally blank and lightweight until you ask for a read, so the chart and analysis only load when they are actually needed.</p>
         {% endif %}
       </div>
 
+      {% if show_live %}
       <div class="card chart-card">
         <div class="chart-wrap">
           <iframe
@@ -323,6 +324,7 @@ INDEX_HTML = """
           </div>
         </div>
       </div>
+      {% endif %}
 
       {% if error %}
       <div class="card">
@@ -341,35 +343,10 @@ INDEX_HTML = """
       </div>
       {% endif %}
 
-      {% if not output %}
+      {% if not show_live %}
       <div class="card" id="insight">
         <div class="section-title"><h2>Insight</h2></div>
-        <p>This looks more like a conditional value buy than a value trap because the business still shows real growth and product expansion. The last four quarters show strong momentum overall, with both EPS and revenue improving materially versus earlier periods, and that is not a trap-style fundamental profile. The problem is that the stock got ahead of itself and then entered a period where investors started demanding proof that the next leg of growth will come from broader products rather than just favorable market activity. The tape is not calling the company broken; it is asking management to prove the next leg can hold in price.</p>
-      </div>
-
-      <div class="card" id="stage">
-        <div class="section-title"><h2>Stage Analysis</h2></div>
-        <p>HOOD reads like a strong former leader in a post-extension repair phase rather than a stock in terminal damage. The longer-term growth-stock identity is still intact, but it needs a calmer reset and stronger reclaim behavior before it earns fresh power-trend treatment. The bigger trend is still powerful because 2025 was a monster earnings and revenue year, but the tape since early 2026 has been a reset rather than a clean continuation. In Oliver Kell terms, this acts more like a post-extension repair or reset phase after a high-momentum run, not a fresh base-break launch.</p>
-      </div>
-
-      <div class="card" id="volatility">
-        <div class="section-title"><h2>Volatility Analysis</h2></div>
-        <p>The pattern is not clean yet because the swings are still wider than you want for a true low-risk contraction. A proper reset would show progressively tighter pullbacks and calmer price action under resistance, but HOOD has still been trading with wide bars and event-driven volatility. That does not kill the setup, but it does mean this is not yet the type of polished structure you want to size aggressively before confirmation. The upgrade would come from smaller pullbacks, volume drying up, and a tighter shelf beneath resistance instead of whip action.</p>
-      </div>
-
-      <div class="card" id="earnings">
-        <div class="section-title"><h2>Earnings Context</h2></div>
-        <p>The last reported quarter was Q4 2025 on February 10, 2026. HOOD beat EPS at $0.66 versus roughly $0.63 consensus, but missed revenue at about $1.28 billion versus expectations near $1.32 billion. The market focused on the softer revenue print and crypto weakness more than the EPS beat, and the stock sold off sharply the next day. So this was a classic mixed report with a negative reaction: bottom line good, top line slightly light, forward narrative less exciting than investors wanted.</p>
-      </div>
-
-      <div class="card" id="tailwind">
-        <div class="section-title"><h2>Tailwind</h2></div>
-        <p>The forward story is bigger than trading volumes alone. The biggest tailwinds are the push toward the Financial SuperApp model, expansion in prediction markets, the Robinhood Chain testnet for tokenized assets and on-chain finance, growth in Robinhood Strategies, and the company's widening reach across retirement, wealth, and active trading products. These are credible TAM expanders because they move Robinhood beyond pure retail stock and crypto trading into broader wallet-share businesses. That said, some of the newer initiatives still carry execution and regulatory risk, so they are real tailwinds but not all proven revenue engines yet.</p>
-      </div>
-
-      <div class="card" id="action">
-        <div class="section-title"><h2>Action Plan</h2></div>
-        <p>{{ action_plan }}</p>
+        <p>The Oracle does not know everything. It waits for a ticker, then builds a live consult from the chart, recent structure, earnings context, and the script's own analysis before it says anything specific.</p>
       </div>
       {% endif %}
     </div>
@@ -464,7 +441,7 @@ def index():
     output = ""
     error = ""
     download_url = ""
-    ticker = "HOOD"
+    ticker = ""
     period = "3y"
     save_docx = False
     temp_chart_path = None
@@ -476,11 +453,29 @@ def index():
                    "the next reclaim zone above $40.20.")
 
     if request.method == "POST":
-        ticker = request.form.get("ticker", "HOOD").strip().upper() or "HOOD"
+        ticker = request.form.get("ticker", "").strip().upper()
         period = request.form.get("period", "3y")
         action = request.form.get("action", "consult")
         save_docx = action == "export" or request.form.get("docx", "0") == "1"
         chart = request.files.get("chart")
+
+        if not ticker:
+            error = "Enter a ticker before consulting The Oracle."
+            return render_template_string(
+                INDEX_HTML,
+                output=output,
+                error=error,
+                ticker=ticker,
+                chart_symbol="",
+                period=period,
+                save_docx=save_docx,
+                download_url=download_url,
+                last_price=last_price,
+                earnings_blurb=earnings_blurb,
+                reaction_blurb=reaction_blurb,
+                action_plan=action_plan,
+                periods=["1y", "2y", "3y", "5y", "10y", "max"],
+            )
 
         if chart and chart.filename:
             suffix = Path(secure_filename(chart.filename)).suffix or ".png"
@@ -507,6 +502,7 @@ def index():
         error=error,
         ticker=ticker,
         chart_symbol=ticker,
+        show_live=bool(ticker and output),
         period=period,
         save_docx=save_docx,
         download_url=download_url,
