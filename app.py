@@ -265,14 +265,14 @@ INDEX_HTML = """
           <p>A Deep Dive For Context And Nuances.</p>
         </div>
         <div class="nav-row">
-          <button class="btn" type="button" id="upload-trigger">Upload</button>
-          <button class="btn" type="submit" name="action" value="export">Export</button>
+          <a class="btn" href="#insight">Insight</a>
           <a class="btn" href="#stage">Stage</a>
           <a class="btn" href="#volatility">Volatility</a>
           <a class="btn" href="#earnings">Earnings</a>
           <a class="btn" href="#tailwind">Tailwind</a>
-          <a class="btn" href="#insight">Insight</a>
           <a class="btn" href="#action">Action</a>
+          <button class="btn" type="button" id="upload-trigger">Upload</button>
+          <button class="btn" type="submit" name="action" value="export">Export</button>
         </div>
         <div class="action-row">
           <input class="ticker-input" name="ticker" value="{{ ticker }}" placeholder="Ticker" aria-label="Ticker" required>
