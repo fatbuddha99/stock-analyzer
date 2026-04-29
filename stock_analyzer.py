@@ -198,10 +198,18 @@ def fetch_data_alpha_vantage(ticker, period="3y", api_key=None):
         raise RuntimeError(f"Alpha Vantage error for {ticker}: {payload['Error Message']}")
     if "Note" in payload:
         raise RuntimeError(f"Alpha Vantage rate limit hit: {payload['Note']}")
+    if "Information" in payload:
+        raise RuntimeError(f"Alpha Vantage info for {ticker}: {payload['Information']}")
+    if "Meta Data" in payload and "Time Series (Daily)" not in payload:
+        raise RuntimeError(
+            f"Alpha Vantage returned metadata but no daily series for {ticker}. "
+            f"Keys: {', '.join(payload.keys())}"
+        )
 
     series = payload.get("Time Series (Daily)")
     if not series:
-        raise RuntimeError(f"Alpha Vantage returned no daily series for {ticker}")
+        preview = json.dumps(payload)[:500]
+        raise RuntimeError(f"Alpha Vantage returned no daily series for {ticker}. Payload preview: {preview}")
 
     rows = []
     for day, values in series.items():
